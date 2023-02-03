@@ -7,8 +7,9 @@ import {
   addToolState,
   getToolState,
 } from './../../stateManagement/toolState.js';
-import toolColors from './../../stateManagement/toolColors.js';
 import { state } from '../../store/index.js';
+
+import toolColors from './../../stateManagement/toolColors.js';
 import triggerEvent from '../../util/triggerEvent.js';
 
 // Manipulators
@@ -19,8 +20,12 @@ import { getNewContext, draw, drawJoinedLines } from '../../drawing/index.js';
 import drawHandles from '../../drawing/drawHandles.js';
 import { clipToBox } from '../../util/clip.js';
 import { hideToolCursor, setToolCursor } from '../../store/setToolCursor.js';
+
 import { freehandRoiCursor } from '../cursors/index.js';
+
 import freehandUtils from '../../util/freehand/index.js';
+
+import { globalImageIdSpecificToolStateManager } from '../../stateManagement/imageIdSpecificStateManager.js';
 
 const { FreehandHandleData } = freehandUtils;
 
@@ -56,7 +61,7 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
   createNewMeasurement() {
     return {
       visible: true,
-      active: true,
+      active: false,
       invalidated: true,
       color: undefined,
       handles: {
@@ -65,14 +70,6 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
     };
   }
 
-  /**
-   *
-   *
-   * @param {*} element element
-   * @param {*} data data
-   * @param {*} coords coords
-   * @returns {Boolean}
-   */
   pointNearTool(element, data, coords) {
     const validParameters = data && data.handles && data.handles.points;
 
@@ -88,21 +85,38 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
 
     const isPointNearTool = this._pointNearHandle(data, coords);
 
-    if (isPointNearTool !== undefined) {
-      return true;
-    }
-
-    return false;
+    return isPointNearTool !== undefined;
   }
 
   /**
-   * @param {*} element
-   * @param {*} data
+   * Returns a handle of a particular tool if it is close to the mouse cursor.
+   *
+   * @private
+   * @param {Object} data - data object associated with the tool.
    * @param {*} coords
-   * @returns {number} the distance in px from the provided coordinates to the
-   * closest rendered portion of the annotation. -1 if the distance cannot be
-   * calculated.
+   * @returns {number|void}
    */
+  _pointNearHandle(data, coords) {
+    if (data.handles === undefined || data.handles.points === undefined) {
+      return;
+    }
+
+    if (data.visible === false) {
+      return;
+    }
+
+    for (let i = 0; i < data.handles.points.length; i++) {
+      const handleCanvas = external.cornerstone.pixelToCanvas(
+        this.element,
+        data.handles.points[i]
+      );
+
+      if (external.cornerstoneMath.point.distance(handleCanvas, coords) < 6) {
+        return i;
+      }
+    }
+  }
+
   distanceFromPoint(element, data, coords) {
     let distance = Infinity;
 
@@ -123,12 +137,6 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
     return distance;
   }
 
-  /**
-   *
-   *
-   * @param {*} evt
-   * @returns {undefined}
-   */
   renderToolData(evt) {
     const eventData = evt.detail;
 
@@ -139,11 +147,13 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
       return;
     }
 
-    const { element } = eventData;
-    const config = this.configuration;
+    const { element, image } = eventData;
 
     // We have tool data for this element - iterate over each one and draw it
     const context = getNewContext(eventData.canvasContext.canvas);
+
+    // Adjust spacing between points
+    this.adjustSpacing(image.imageId);
 
     for (let i = 0; i < toolState.data.length; i++) {
       const data = toolState.data[i];
@@ -168,78 +178,30 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
         if (data.handles.points.length) {
           const points = data.handles.points;
 
+          // Draw primary lines
           drawJoinedLines(context, element, points[0], points, options);
-
-          if (!data.polyBoundingBox) {
-            drawJoinedLines(
-              context,
-              element,
-              points[points.length - 1],
-              [config.mouseLocation.handles.start],
-              options
-            );
-          }
         }
 
         // Draw handles
         options = {
           color,
           fill: fillColor,
+          handleRadius: this.configuration.activeHandleRadius,
         };
 
-        if (config.alwaysShowHandles || (data.active && data.polyBoundingBox)) {
-          // Render all handles
-          options.handleRadius = config.activeHandleRadius;
-
-          if (this.configuration.drawHandles) {
-            drawHandles(context, eventData, data.handles.points, options);
-          }
-        }
-
-        if (data.canComplete) {
-          // Draw large handle at the origin if can complete drawing
-          options.handleRadius = config.completeHandleRadius;
-          const handle = data.handles.points[0];
-
-          if (this.configuration.drawHandles) {
-            drawHandles(context, eventData, [handle], options);
-          }
-        }
-
-        if (data.active && !data.polyBoundingBox) {
-          // Draw handle at origin and at mouse if actively drawing
-          options.handleRadius = config.activeHandleRadius;
-
-          if (this.configuration.drawHandles) {
-            drawHandles(
-              context,
-              eventData,
-              config.mouseLocation.handles,
-              options
-            );
-          }
-
-          const firstHandle = data.handles.points[0];
-
-          if (this.configuration.drawHandles) {
-            drawHandles(context, eventData, [firstHandle], options);
-          }
-        }
+        // Render all handles
+        drawHandles(context, eventData, data.handles.points, options);
       });
 
       draw(context, context => {
-        for (
-          let pointIdx = 0;
-          pointIdx < config.noOfSecondaryLines;
-          pointIdx++
-        ) {
-          const color = toolColors.getColorIfActive(data);
-          const options = { color };
+        const options = { color: 'white' };
 
+        for (let pointIdx = 0; pointIdx < this.noOfSecondaryLines; pointIdx++) {
           const points = toolState.data
             .filter((line, idx) => idx !== 0)
             .map(line => line.handles.points[pointIdx]);
 
+          // Draw secondary lines
           drawJoinedLines(
             context,
             element,
@@ -250,25 +212,6 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
         }
       });
     }
-  }
-
-  addNewMeasurement(evt) {
-    const toolState = getToolState(this.element, this.name);
-
-    if (toolState && toolState.data && toolState.data.length) {
-      // Do not create another grid when there is already one
-      return;
-    }
-
-    const config = this.configuration;
-
-    for (let lineIdx = 0; lineIdx < config.noOfPrimaryLines; lineIdx++) {
-      this.startDrawing();
-      this.generatePrimaryLines();
-      this.completeDrawing();
-    }
-
-    preventPropagation(evt);
   }
 
   handleSelectedCallback(evt, toolData, handle, interactionType = 'mouse') {
@@ -305,8 +248,57 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
 
     this._activateModify();
 
-    // Interupt eventDispatchers
+    // Interrupt eventDispatchers
     preventPropagation(evt);
+  }
+
+  addNewMeasurement(evt) {
+    const toolState = getToolState(this.element, this.name);
+
+    if (toolState && toolState.data && toolState.data.length) {
+      // Do not create another grid when there is already one
+      return;
+    }
+
+    for (let lineIdx = 0; lineIdx < this.noOfPrimaryLines; lineIdx++) {
+      this.generatePrimaryLine(evt.detail.currentPoints.image);
+    }
+
+    this.completeDrawing();
+    preventPropagation(evt);
+  }
+
+  /**
+   * Beginning of drawing loop, when tool is active.
+   *
+   * @returns {void}
+   */
+  startDrawing() {
+    const measurementData = this.createNewMeasurement();
+    const config = this.configuration;
+
+    this._activateDraw();
+    addToolState(this.element, this.name, measurementData);
+
+    const toolState = getToolState(this.element, this.name);
+
+    config.currentTool = toolState.data.length - 1;
+    this._activeDrawingToolReference = toolState.data[config.currentTool];
+  }
+
+  /**
+   * Adds drawing loop event listeners.
+   *
+   * @private
+   * @returns {undefined}
+   */
+  _activateDraw() {
+    this._drawing = true;
+
+    state.isMultiPartToolActive = true;
+    hideToolCursor(this.element);
+
+    external.cornerstone.updateImage(this.element);
   }
 
   /** Ends the active drawing loop and completes the polygon.
@@ -318,16 +310,134 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
     if (!this._drawing) {
       return null;
     }
+    this._endDrawing();
+  }
+
+  /**
+   * Ends the active drawing loop.
+   *
+   * @private
+   * @returns {void}
+   */
+  _endDrawing() {
     const toolState = getToolState(this.element, this.name);
     const config = this.configuration;
     const data = toolState.data[config.currentTool];
 
-    if (data.handles.points.length >= 2) {
-      const lastHandlePlaced = config.currentHandle;
+    data.active = false;
+    data.highlight = false;
 
-      data.polyBoundingBox = {};
-      this._endDrawing(lastHandlePlaced);
+    if (this._modifying) {
+      this._modifying = false;
+      data.invalidated = true;
     }
+
+    // Reset the current handle
+    config.currentHandle = 0;
+    config.currentTool = -1;
+
+    if (this._drawing) {
+      this._deactivateDraw();
+    }
+
+    external.cornerstone.updateImage(this.element);
+
+    this.fireModifiedEvent(data);
+    this.fireCompletedEvent(data);
+  }
+
+  /**
+   * Removes drawing loop event listeners.
+   *
+   * @private
+   * @returns {void}
+   */
+  _deactivateDraw() {
+    this._drawing = false;
+    state.isMultiPartToolActive = false;
+    this._activeDrawingToolReference = null;
+    setToolCursor(this.element, this.svgCursor);
+  }
+
+  /**
+   * Adds modify loop event listeners.
+   *
+   * @private
+   * @returns {void}
+   */
+  _activateModify() {
+    state.isToolLocked = true;
+
+    this.element.addEventListener(EVENTS.MOUSE_UP, this._editMouseUpCallback);
+    this.element.addEventListener(
+      EVENTS.MOUSE_DRAG,
+      this._editMouseDragCallback
+    );
+
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Removes modify loop event listeners.
+   *
+   * @private
+   * @returns {void}
+   */
+  _deactivateModify() {
+    state.isToolLocked = false;
+
+    this.element.removeEventListener(
+      EVENTS.MOUSE_UP,
+      this._editMouseUpCallback
+    );
+    this.element.removeEventListener(
+      EVENTS.MOUSE_DRAG,
+      this._editMouseDragCallback
+    );
+
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Gets the current mouse location and stores it in the configuration object.
+   *
+   * @private
+   * @param {Object} eventData The data associated with the event.
+   * @returns {undefined}
+   */
+  _getMouseLocation(eventData) {
+    const { currentPoints, image } = eventData;
+    // Set the mouseLocation handle
+    const config = this.configuration;
+
+    config.mouseLocation.handles.start.x = currentPoints.image.x;
+    config.mouseLocation.handles.start.y = currentPoints.image.y;
+    clipToBox(config.mouseLocation.handles.start, image);
+  }
+
+  /**
+   * Returns the previous handle to the current one.
+   * @param {Number} currentHandle - the current handle index
+   * @param {Array} points - the handles Array of the freehand data
+   * @returns {Number} - The index of the previos handle
+   */
+  _getPrevHandleIndex(currentHandle, points) {
+    if (currentHandle === 0) {
+      return points.length - 1;
+    }
+
+    return currentHandle - 1;
+  }
+
+  /**
+   * Event handler for MOUSE_UP during handle drag event loop.
+   *
+   * @private
+   * @returns {undefined}
+   */
+  _editMouseUpCallback() {
+    this._deactivateModify();
+    this._endDrawing();
   }
 
   /**
@@ -359,7 +469,20 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
     data.active = true;
     data.highlight = true;
 
-    if (!config.moveOneHandleOnly) {
+    if (this.moveOneHandleOnly) {
+      points[currentHandle].x = config.mouseLocation.handles.start.x;
+      points[currentHandle].y = config.mouseLocation.handles.start.y;
+
+      handleIndex = this._getPrevHandleIndex(currentHandle, points);
+
+      if (currentHandle > 0) {
+        const lastLineIndex = points[handleIndex].lines.length - 1;
+        const lastLine = points[handleIndex].lines[lastLineIndex];
+
+        lastLine.x = config.mouseLocation.handles.start.x;
+        lastLine.y = config.mouseLocation.handles.start.y;
+      }
+    } else {
       const xChange =
         config.mouseLocation.handles.start.x - points[currentHandle].x;
       const yChange =
@@ -371,226 +494,9 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
           point.y += yChange;
         }
       }
-    } else {
-      points[currentHandle].x = config.mouseLocation.handles.start.x;
-      points[currentHandle].y = config.mouseLocation.handles.start.y;
-
-      handleIndex = this._getPrevHandleIndex(currentHandle, points);
-
-      if (currentHandle >= 0) {
-        const lastLineIndex = points[handleIndex].lines.length - 1;
-        const lastLine = points[handleIndex].lines[lastLineIndex];
-
-        lastLine.x = config.mouseLocation.handles.start.x;
-        lastLine.y = config.mouseLocation.handles.start.y;
-      }
     }
 
     // Update the image
-    external.cornerstone.updateImage(this.element);
-  }
-
-  /**
-   * Returns the previous handle to the current one.
-   * @param {Number} currentHandle - the current handle index
-   * @param {Array} points - the handles Array of the freehand data
-   * @returns {Number} - The index of the previos handle
-   */
-  _getPrevHandleIndex(currentHandle, points) {
-    if (currentHandle === 0) {
-      return points.length - 1;
-    }
-
-    return currentHandle - 1;
-  }
-
-  /**
-   * Event handler for MOUSE_UP during handle drag event loop.
-   *
-   * @private
-   * @returns {undefined}
-   */
-  _editMouseUpCallback() {
-    this._deactivateModify();
-    this._endDrawing();
-
-    external.cornerstone.updateImage(this.element);
-  }
-
-  /**
-   * Beginning of drawing loop when tool is active
-   *
-   * @returns {undefined}
-   */
-  startDrawing() {
-    const measurementData = this.createNewMeasurement();
-    const config = this.configuration;
-
-    this._activateDraw();
-
-    addToolState(this.element, this.name, measurementData);
-
-    const toolState = getToolState(this.element, this.name);
-
-    config.currentTool = toolState.data.length - 1;
-
-    this._activeDrawingToolReference = toolState.data[config.currentTool];
-  }
-
-  /**
-   * Ends the active drawing loop and completes the polygon.
-   *
-   * @private
-   * @param {Object} handleNearby - the handle nearest to the mouse cursor.
-   * @returns {undefined}
-   */
-  _endDrawing(handleNearby = undefined) {
-    const toolState = getToolState(this.element, this.name);
-    const config = this.configuration;
-    const data = toolState.data[config.currentTool];
-
-    data.active = false;
-    data.highlight = false;
-
-    // Connect the end handle to the origin handle todo
-    if (handleNearby !== undefined) {
-      const points = data.handles.points;
-
-      points[config.currentHandle - 1].lines.push(points[0]);
-    }
-
-    if (this._modifying) {
-      this._modifying = false;
-      data.invalidated = true;
-    }
-
-    // Reset the current handle
-    config.currentHandle = 0;
-    config.currentTool = -1;
-    data.canComplete = false;
-
-    if (this._drawing) {
-      this._deactivateDraw();
-    }
-
-    external.cornerstone.updateImage(this.element);
-
-    this.fireModifiedEvent(data);
-    this.fireCompletedEvent(data);
-  }
-
-  /**
-   * Returns a handle of a particular tool if it is close to the mouse cursor
-   *
-   * @private
-   * @param {Object} data      Data object associated with the tool.
-   * @param {*} coords
-   * @returns {Number|Object|Boolean}
-   */
-  _pointNearHandle(data, coords) {
-    if (data.handles === undefined || data.handles.points === undefined) {
-      return;
-    }
-
-    if (data.visible === false) {
-      return;
-    }
-
-    for (let i = 0; i < data.handles.points.length; i++) {
-      const handleCanvas = external.cornerstone.pixelToCanvas(
-        this.element,
-        data.handles.points[i]
-      );
-
-      if (external.cornerstoneMath.point.distance(handleCanvas, coords) < 6) {
-        return i;
-      }
-    }
-  }
-
-  /**
-   * Gets the current mouse location and stores it in the configuration object.
-   *
-   * @private
-   * @param {Object} eventData The data assoicated with the event.
-   * @returns {undefined}
-   */
-  _getMouseLocation(eventData) {
-    const { currentPoints, image } = eventData;
-    // Set the mouseLocation handle
-    const config = this.configuration;
-
-    config.mouseLocation.handles.start.x = currentPoints.image.x;
-    config.mouseLocation.handles.start.y = currentPoints.image.y;
-    clipToBox(config.mouseLocation.handles.start, image);
-  }
-
-  /**
-   * Adds drawing loop event listeners.
-   *
-   * @private
-   * @returns {undefined}
-   */
-  _activateDraw() {
-    this._drawing = true;
-
-    state.isMultiPartToolActive = true;
-    hideToolCursor(this.element);
-
-    external.cornerstone.updateImage(this.element);
-  }
-
-  /**
-   * Removes drawing loop event listeners.
-   *
-   * @private
-   * @returns {undefined}
-   */
-  _deactivateDraw() {
-    this._drawing = false;
-    state.isMultiPartToolActive = false;
-    this._activeDrawingToolReference = null;
-    setToolCursor(this.element, this.svgCursor);
-
-    external.cornerstone.updateImage(this.element);
-  }
-
-  /**
-   * Adds modify loop event listeners.
-   *
-   * @private
-   * @returns {void}
-   */
-  _activateModify() {
-    state.isToolLocked = true;
-
-    this.element.addEventListener(EVENTS.MOUSE_UP, this._editMouseUpCallback);
-    this.element.addEventListener(
-      EVENTS.MOUSE_DRAG,
-      this._editMouseDragCallback
-    );
-
-    external.cornerstone.updateImage(this.element);
-  }
-
-  /**
-   * Removes modify loop event listeners.
-   *
-   * @private
-   * @returns {undefined}
-   */
-  _deactivateModify() {
-    state.isToolLocked = false;
-
-    this.element.removeEventListener(
-      EVENTS.MOUSE_UP,
-      this._editMouseUpCallback
-    );
-    this.element.removeEventListener(
-      EVENTS.MOUSE_DRAG,
-      this._editMouseDragCallback
-    );
-
     external.cornerstone.updateImage(this.element);
   }
 
@@ -608,191 +514,15 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
 
   _closeToolIfDrawing() {
     if (this._drawing) {
-      // Actively drawing but changed mode.
-      const config = this.configuration;
-      const lastHandlePlaced = config.currentHandle;
-
-      this._endDrawing(lastHandlePlaced);
-      external.cornerstone.updateImage(this.element);
+      this._endDrawing();
     }
-  }
-
-  /**
-   * Fire MEASUREMENT_MODIFIED event on provided element
-   * @param {any} measurementData the measurment data
-   * @returns {void}
-   */
-  fireModifiedEvent(measurementData) {
-    const eventType = EVENTS.MEASUREMENT_MODIFIED;
-    const eventData = {
-      toolName: this.name,
-      toolType: this.name, // Deprecation notice: toolType will be replaced by toolName
-      element: this.element,
-      measurementData,
-    };
-
-    triggerEvent(this.element, eventType, eventData);
-  }
-
-  fireCompletedEvent(measurementData) {
-    const eventType = EVENTS.MEASUREMENT_COMPLETED;
-    const eventData = {
-      toolName: this.name,
-      toolType: this.name, // Deprecation notice: toolType will be replaced by toolName
-      element: this.element,
-      measurementData,
-    };
-
-    triggerEvent(this.element, eventType, eventData);
-  }
-
-  generatePrimaryLines() {
-    const config = this.configuration;
-    const x = config.currentTool * config.spacing;
-    const spacing = config.spacing;
-
-    const points = Array.from({ length: config.noOfSecondaryLines }, () =>
-      Object({ x, y: 0 })
-    ).map((point, idx, arr) => {
-      if (idx === 0) {
-        return point;
-      }
-
-      point.y = arr[idx - 1].y + spacing;
-
-      return point;
-    });
-
-    for (const point of points) {
-      this.addPoint(point);
-    }
-  }
-
-  addPoint(point = { x: 0, y: 0 }) {
-    const toolState = getToolState(this.element, this.name);
-
-    // Get the toolState from the last-drawn polygon
-    const config = this.configuration;
-    const data = toolState.data[config.currentTool];
-
-    const newHandleData = new FreehandHandleData(point);
-
-    // If this is not the first handle
-    if (data.handles.points.length) {
-      // Add the line from the current handle to the new handle
-      data.handles.points[config.currentHandle - 1].lines.push(point);
-    }
-
-    // Add the new handle
-    data.handles.points.push(newHandleData);
-
-    // Increment the current handle value
-    config.currentHandle += 1;
-
-    // Force onImageRendered to fire
-    external.cornerstone.updateImage(this.element);
-    this.fireModifiedEvent(data);
-  }
-
-  // ===================================================================
-  // Public Configuration API. .
-  // ===================================================================
-
-  get activeHandleRadius() {
-    return this.configuration.activeHandleRadius;
-  }
-
-  set activeHandleRadius(value) {
-    if (typeof value !== 'number') {
-      throw new Error(
-        'Attempting to set freehand activeHandleRadius to a value other than a number.'
-      );
-    }
-
-    this.configuration.activeHandleRadius = value;
-    external.cornerstone.updateImage(this.element);
-  }
-
-  get alwaysShowHandles() {
-    return this.configuration.alwaysShowHandles;
-  }
-
-  set alwaysShowHandles(value) {
-    if (typeof value !== 'boolean') {
-      throw new Error(
-        'Attempting to set freehand alwaysShowHandles to a value other than a boolean.'
-      );
-    }
-
-    this.configuration.alwaysShowHandles = value;
-    external.cornerstone.updateImage(this.element);
-  }
-
-  get moveOneHandleOnly() {
-    return this.configuration.moveOneHandleOnly;
-  }
-
-  set moveOneHandleOnly(value) {
-    if (typeof value !== 'boolean') {
-      throw new Error(
-        'Attempting to set moveOneHandleOnly to a value other than a boolean.'
-      );
-    }
-
-    this.configuration.moveOneHandleOnly = value;
-    external.cornerstone.updateImage(this.element);
-  }
-
-  get noOfPrimaryLines() {
-    return this.configuration.noOfPrimaryLines;
-  }
-
-  set noOfPrimaryLines(value) {
-    if (typeof value !== 'number') {
-      throw new Error(
-        'Attempting to set noOfPrimaryLines to a value other than a number.'
-      );
-    }
-
-    // todo: update grid and redraw image
-    this.configuration.noOfPrimaryLines = value;
-  }
-
-  get noOfSecondaryLines() {
-    return this.configuration.noOfSecondaryLines;
-  }
-
-  set noOfSecondaryLines(value) {
-    if (typeof value !== 'number') {
-      throw new Error(
-        'Attempting to set noOfSecondaryLines to a value other than a number.'
-      );
-    }
-
-    // todo: update grid and redraw image
-    this.configuration.noOfSecondaryLines = value;
-  }
-
-  get spacing() {
-    return this.configuration.spacing;
-  }
-
-  set spacing(value) {
-    if (typeof value !== 'number') {
-      throw new Error(
-        'Attempting to set spacing to a value other than a number.'
-      );
-    }
-
-    this.configuration.spacing = value;
-    external.cornerstone.updateImage(this.element);
   }
 
   /**
    * New image event handler.
    *
    * @public
-   * @returns {null}
+   * @returns {null|void}
    */
   newImageCallback() {
     const config = this.configuration;
@@ -810,9 +540,443 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
     // Reset the current handle
     config.currentHandle = 0;
     config.currentTool = -1;
-    data.canComplete = false;
 
     this._deactivateDraw();
+
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Fire MEASUREMENT_MODIFIED event on provided element
+   *
+   * @param {any} measurementData - the measurement data
+   * @returns {void}
+   */
+  fireModifiedEvent(measurementData) {
+    const eventType = EVENTS.MEASUREMENT_MODIFIED;
+    const eventData = {
+      toolName: this.name,
+      toolType: this.name, // Deprecation notice: toolType will be replaced by toolName
+      element: this.element,
+      measurementData,
+    };
+
+    triggerEvent(this.element, eventType, eventData);
+  }
+
+  /**
+   * Fire MEASUREMENT_COMPLETED event on current element
+   *
+   * @param {any} measurementData - the measurement data
+   * @returns {void}
+   */
+  fireCompletedEvent(measurementData) {
+    const eventType = EVENTS.MEASUREMENT_COMPLETED;
+    const eventData = {
+      toolName: this.name,
+      toolType: this.name, // Deprecation notice: toolType will be replaced by toolName
+      element: this.element,
+      measurementData,
+    };
+
+    triggerEvent(this.element, eventType, eventData);
+  }
+
+  /**
+   * Generate new primary line with points respecting direction and length of previous points
+   *
+   * @param {{ x: number, y: number }|null} [position=null]
+   * @returns {void}
+   */
+  generatePrimaryLine(position = null) {
+    // Add new measurement to tool's state
+    this.startDrawing();
+
+    const config = this.configuration;
+    const toolState = getToolState(this.element, this.name);
+
+    let points = [];
+
+    if (toolState.data.length > 1) {
+      const prevPrimaryLine = toolState.data[toolState.data.length - 2];
+      const prevPrevPrimaryLine = toolState.data[toolState.data.length - 3];
+
+      for (let idx = 0; idx < this.noOfSecondaryLines; idx++) {
+        let xDiff, yDiff;
+
+        if (prevPrevPrimaryLine) {
+          xDiff =
+            prevPrimaryLine.handles.points[idx].x -
+            prevPrevPrimaryLine.handles.points[idx].x;
+
+          yDiff =
+            prevPrimaryLine.handles.points[idx].y -
+            prevPrevPrimaryLine.handles.points[idx].y;
+        } else {
+          xDiff = this.spacing;
+          yDiff = 0;
+        }
+
+        const x = prevPrimaryLine.handles.points[idx].x + xDiff;
+        const y = prevPrimaryLine.handles.points[idx].y + yDiff;
+
+        points.push({ x, y, primaryLineIdx: toolState.data.length - 1 });
+      }
+    } else {
+      // We are generating first primary line
+      const x = position.x + config.currentTool * this.spacing;
+
+      points = Array.from({ length: this.noOfSecondaryLines }, () =>
+        Object({ x, y: position.y, primaryLineIdx: 0 })
+      ).map((point, idx, arr) => {
+        if (idx === 0) {
+          return point;
+        }
+
+        point.y = arr[idx - 1].y + this.spacing;
+
+        return point;
+      });
+    }
+
+    points.forEach(point => {
+      this.addPoint(point, point.primaryLineIdx);
+    });
+  }
+
+  /**
+   * Remove last primary line from grid
+   *
+   * @returns {void}
+   */
+  removeLastPrimaryLine() {
+    const toolState = getToolState(this.element, this.name);
+
+    toolState.data.pop();
+  }
+
+  /**
+   * Generate new secondary line with points respecting direction and length of previous points
+   *
+   * @returns {void}
+   */
+  generateSecondaryLine() {
+    const toolState = getToolState(this.element, this.name);
+
+    for (let idx = 0; idx < this.noOfPrimaryLines; idx++) {
+      const noOfPoints = toolState.data[idx].handles.points.length;
+
+      const prevPoint = toolState.data[idx].handles.points[noOfPoints - 1];
+      const prevPrevPoint = toolState.data[idx].handles.points[noOfPoints - 2];
+
+      let xDiff, yDiff;
+
+      if (prevPrevPoint) {
+        xDiff = prevPoint.x - prevPrevPoint.x;
+        yDiff = prevPoint.y - prevPrevPoint.y;
+      } else {
+        xDiff = 0;
+        yDiff = this.spacing;
+      }
+
+      const x = prevPoint.x + xDiff;
+      const y = prevPoint.y + yDiff;
+
+      this.addPoint({ x, y }, idx);
+    }
+  }
+
+  /**
+   * Remove last secondary line from grid
+   *
+   * @returns {void}
+   */
+  removeLastSecondaryLine() {
+    const toolState = getToolState(this.element, this.name);
+
+    for (let idx = 0; idx < this.noOfPrimaryLines; idx++) {
+      toolState.data[idx].handles.points.pop();
+
+      const noOfPoints = toolState.data[idx].handles.points.length;
+      const lastPoint = toolState.data[idx].handles.points[noOfPoints - 1];
+
+      lastPoint.lines = [];
+    }
+  }
+
+  /**
+   * Store given point in tool's state along with line to the previous primary point
+   *
+   * @param {Object<{ x: number, y: number}>} point
+   * @param {number} primaryLineIdx - primary line index, which given point will belong to
+   * @returns {void}
+   */
+  addPoint(point = { x: 0, y: 0 }, primaryLineIdx) {
+    const toolState = getToolState(this.element, this.name);
+
+    const primaryLine = toolState.data[primaryLineIdx];
+
+    const newHandleData = new FreehandHandleData(point);
+
+    // If this is not the first handle
+    if (primaryLine.handles.points.length) {
+      // Add the line from the current handle to the new handle
+      primaryLine.handles.points[
+        primaryLine.handles.points.length - 1
+      ].lines.push(point);
+    }
+
+    // Add the new handle
+    primaryLine.handles.points.push(newHandleData);
+
+    // Force onImageRendered to fire
+    external.cornerstone.updateImage(this.element);
+    this.fireModifiedEvent(primaryLine);
+  }
+
+  // ===================================================================
+  // Helper methods .
+  // ===================================================================
+
+  /**
+   * Check, if grid spacing needs to be adjusted
+   *
+   * @param {string} imageId
+   * @returns {void}
+   */
+  adjustSpacing(imageId) {
+    if (!this.configuration.spacing.hasOwnProperty(imageId)) {
+      this.configuration.spacing[imageId] = this.spacing;
+    }
+    if (this.spacing === this.configuration.spacing[imageId]) {
+      return;
+    }
+    this.onSpacingChange(this.spacing, imageId);
+  }
+
+  /**
+   * Adjust grid spacing for given image, if it was changed
+   *
+   * @param {number} newSpacing
+   * @param {string} imageId
+   * @returns {void}
+   */
+  onSpacingChange(newSpacing, imageId) {
+    const existingSpacing = this.configuration.spacing[imageId];
+    const spacingChange = newSpacing - existingSpacing;
+
+    const toolState = getToolState(this.element, this.name);
+
+    for (
+      let primaryLineIdx = 0;
+      primaryLineIdx < toolState.data.length;
+      primaryLineIdx++
+    ) {
+      let primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
+
+      primaryLinePoints = primaryLinePoints.map((point, pointIdx) => {
+        point.x += primaryLineIdx * spacingChange;
+        if (pointIdx !== 0) {
+          point.y += pointIdx * spacingChange;
+        }
+
+        return point;
+      });
+    }
+
+    this.configuration.spacing.global = newSpacing;
+    this.configuration.spacing[imageId] = newSpacing;
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Get grid's middle point coordinates
+   *
+   * @returns {{x: number, y: number}|null}
+   */
+  getGridMiddlePointCoords() {
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState.data.length) {
+      return null;
+    }
+
+    const upperLeft = toolState.data[0].handles.points[0];
+    const bottomRight =
+      toolState.data[toolState.data.length - 1].handles.points[
+        toolState.data[toolState.data.length - 1].handles.points.length - 1
+      ];
+
+    const x = (upperLeft.x + bottomRight.x) / 2;
+    const y = (upperLeft.y + bottomRight.y) / 2;
+
+    return { x, y };
+  }
+
+  // ===================================================================
+  // Public Configuration API. .
+  // ===================================================================
+
+  /**
+   * Get grid's moving mode
+   * @returns {boolean}
+   */
+  get moveOneHandleOnly() {
+    return this.configuration.moveOneHandleOnly;
+  }
+
+  /**
+   * Set moving mode for grid
+   * @param {boolean} value - if true, moves with selected point, otherwise moves with whole grid
+   */
+  set moveOneHandleOnly(value) {
+    if (typeof value !== 'boolean') {
+      throw new Error(
+        'Attempting to set moveOneHandleOnly to a value other than a boolean.'
+      );
+    }
+
+    this.configuration.moveOneHandleOnly = value;
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Get number of primary lines for current image's grid
+   * @returns {number}
+   */
+  get noOfPrimaryLines() {
+    return this.configuration.noOfPrimaryLines.global;
+  }
+
+  /**
+   * Set number of primary lines for current image's grid
+   * @param {number} newNoOfPrimaryLines
+   */
+  set noOfPrimaryLines(newNoOfPrimaryLines) {
+    if (typeof newNoOfPrimaryLines !== 'number') {
+      throw new Error(
+        'Attempting to set noOfPrimaryLines to a value other than a number.'
+      );
+    }
+
+    let existingNoOfPrimaryLines = this.noOfPrimaryLines;
+
+    if (newNoOfPrimaryLines === existingNoOfPrimaryLines) {
+      return;
+    }
+
+    if (newNoOfPrimaryLines > existingNoOfPrimaryLines) {
+      while (existingNoOfPrimaryLines < newNoOfPrimaryLines) {
+        this.generatePrimaryLine();
+        existingNoOfPrimaryLines++;
+      }
+    } else {
+      while (existingNoOfPrimaryLines > newNoOfPrimaryLines) {
+        this.removeLastPrimaryLine();
+        existingNoOfPrimaryLines--;
+      }
+    }
+
+    this.completeDrawing();
+
+    this.configuration.noOfPrimaryLines.global = newNoOfPrimaryLines;
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Get number of secondary lines for current image's grid
+   * @returns {number}
+   */
+  get noOfSecondaryLines() {
+    return this.configuration.noOfSecondaryLines.global;
+  }
+
+  /**
+   * Set number of secondary lines for current image's grid
+   * @param {number} newNoOfSecondaryLines
+   */
+  set noOfSecondaryLines(newNoOfSecondaryLines) {
+    if (typeof newNoOfSecondaryLines !== 'number') {
+      throw new Error(
+        'Attempting to set noOfSecondaryLines to a value other than a number.'
+      );
+    }
+
+    let existingNoOfSecondaryLines = this.noOfSecondaryLines;
+
+    if (newNoOfSecondaryLines === existingNoOfSecondaryLines) {
+      return;
+    }
+
+    if (newNoOfSecondaryLines > existingNoOfSecondaryLines) {
+      while (existingNoOfSecondaryLines < newNoOfSecondaryLines) {
+        this.generateSecondaryLine();
+        existingNoOfSecondaryLines++;
+      }
+    } else {
+      while (existingNoOfSecondaryLines > newNoOfSecondaryLines) {
+        this.removeLastSecondaryLine();
+        existingNoOfSecondaryLines--;
+      }
+    }
+
+    this.completeDrawing();
+
+    this.configuration.noOfSecondaryLines.global = newNoOfSecondaryLines;
+    external.cornerstone.updateImage(this.element);
+  }
+
+  /**
+   * Get grid spacing of current image
+   * @returns {number}
+   */
+  get spacing() {
+    return this.configuration.spacing.global;
+  }
+
+  /**
+   * Set grid's spacing for current image
+   * @param {number} value
+   */
+  set spacing(value) {
+    if (typeof value !== 'number') {
+      throw new Error(
+        'Attempting to set spacing to a value other than a number.'
+      );
+    }
+
+    const imageId = external.cornerstone.getImage(this.element).imageId;
+
+    this.onSpacingChange(value, imageId);
+  }
+
+  /**
+   * Rotate grid around its center by angle
+   *
+   * @param {number} angle - in degrees
+   * @returns {void}
+   */
+  rotateGrid(angle) {
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState.data.length) {
+      return;
+    }
+
+    const middle = this.getGridMiddlePointCoords();
+
+    for (const primaryLine of toolState.data) {
+      for (const point of primaryLine.handles.points) {
+        const c = Math.cos((angle * Math.PI) / 180);
+        const s = Math.sin((angle * Math.PI) / 180);
+
+        const x = point.x - middle.x;
+        const y = point.y - middle.y;
+
+        point.x = x * c - y * s + middle.x;
+        point.y = x * s + y * c + middle.y;
+      }
+    }
 
     external.cornerstone.updateImage(this.element);
   }
@@ -821,22 +985,26 @@ export default class FreehandRoiTool extends BaseAnnotationTool {
 function defaultFreehandConfiguration() {
   return {
     activeHandleRadius: 2,
-    alwaysShowHandles: true,
     currentHandle: 0,
     currentTool: -1,
-    drawHandles: true,
     mouseLocation: {
       handles: {
         start: {
-          highlight: true,
-          active: true,
+          highlight: false,
+          active: false,
         },
       },
     },
     moveOneHandleOnly: true,
-    noOfPrimaryLines: 10,
-    noOfSecondaryLines: 10,
-    spacing: 8,
+    noOfPrimaryLines: {
+      global: 10,
+    },
+    noOfSecondaryLines: {
+      global: 10,
+    },
+    spacing: {
+      global: 5,
+    },
   };
 }
 
