@@ -27,7 +27,7 @@ import { globalImageIdSpecificToolStateManager } from '../../stateManagement/ima
  * @public
  * @class GridTool
  * @memberof Tools.Annotation
- * @classdesc Tool for drawing grid.
+ * @classdesc Tool for drawing grid onto canvas
  * @extends Tools.Base.BaseAnnotationTool
  */
 export default class GridTool extends BaseAnnotationTool {
