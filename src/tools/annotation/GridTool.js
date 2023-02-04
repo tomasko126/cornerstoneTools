@@ -541,7 +541,7 @@ export default class GridTool extends BaseAnnotationTool {
 
     return {
       config: this.configuration,
-      state: toolState.data,
+      state: toolState ? toolState.data : [],
     };
   }
 

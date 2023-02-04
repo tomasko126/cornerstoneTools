@@ -95,9 +95,10 @@ function triggerStopEvent(element) {
  * The element must be a stack of images
  * @param {HTMLElement} element
  * @param {number} framesPerSecond
+ * @param {{ fromIdx: number, toIdx: number }} options
  * @returns {void}
  */
-function playClip(element, framesPerSecond) {
+function playClip(element, framesPerSecond, options) {
   let playClipData;
   let playClipTimeouts;
 
@@ -194,7 +195,7 @@ function playClip(element, framesPerSecond) {
 
     if (
       !playClipData.loop &&
-      (newImageIdIndex < 0 || newImageIdIndex >= imageCount)
+      (newImageIdIndex < options.fromIdx || newImageIdIndex >= options.toIdx)
     ) {
       stopClipWithData(playClipData);
       triggerStopEvent(element);
@@ -203,12 +204,12 @@ function playClip(element, framesPerSecond) {
     }
 
     // Loop around if we go outside the stack
-    if (newImageIdIndex >= imageCount) {
-      newImageIdIndex = 0;
+    if (newImageIdIndex > options.toIdx) {
+      newImageIdIndex = options.fromIdx;
     }
 
-    if (newImageIdIndex < 0) {
-      newImageIdIndex = imageCount - 1;
+    if (newImageIdIndex < options.fromIdx) {
+      newImageIdIndex = options.fromIdx;
     }
 
     if (newImageIdIndex !== stackData.currentImageIdIndex) {
