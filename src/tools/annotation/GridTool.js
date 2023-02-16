@@ -19,9 +19,9 @@ import { clipToBox } from '../../util/clip.js';
 
 import freehandUtils from '../../util/freehand/index.js';
 
-const { FreehandHandleData } = freehandUtils;
-
 import { globalImageIdSpecificToolStateManager } from '../../stateManagement/imageIdSpecificStateManager.js';
+
+const { FreehandHandleData } = freehandUtils;
 
 /**
  * @public
@@ -139,13 +139,10 @@ export default class GridTool extends BaseAnnotationTool {
       return;
     }
 
-    const { element, image } = eventData;
+    const { element } = eventData;
 
     // We have tool data for this element - iterate over each one and draw it
     const context = getNewContext(eventData.canvasContext.canvas);
-
-    // Adjust spacing between points
-    this.adjustSpacing(image.imageId);
 
     for (let i = 0; i < toolState.data.length; i++) {
       const data = toolState.data[i];
@@ -247,7 +244,11 @@ export default class GridTool extends BaseAnnotationTool {
 
     this.activateDraw();
 
-    for (let lineIdx = 0; lineIdx < this.noOfPrimaryLines; lineIdx++) {
+    for (
+      let lineIdx = 0;
+      lineIdx < this.configuration.noOfPrimaryLines.default;
+      lineIdx++
+    ) {
       this.generatePrimaryLine(evt.detail.currentPoints.image);
     }
 
@@ -473,17 +474,7 @@ export default class GridTool extends BaseAnnotationTool {
         lastLine.y = config.mouseLocation.handles.start.y;
       }
     } else {
-      const xChange =
-        config.mouseLocation.handles.start.x - points[currentHandle].x;
-      const yChange =
-        config.mouseLocation.handles.start.y - points[currentHandle].y;
-
-      for (const tool of toolState.data) {
-        for (const point of tool.handles.points) {
-          point.x += xChange;
-          point.y += yChange;
-        }
-      }
+      this.setOffset(config.mouseLocation.handles.start, true);
     }
 
     // Update the image
@@ -598,7 +589,12 @@ export default class GridTool extends BaseAnnotationTool {
       const prevPrimaryLine = toolState.data[toolState.data.length - 2];
       const prevPrevPrimaryLine = toolState.data[toolState.data.length - 3];
 
-      for (let idx = 0; idx < this.noOfSecondaryLines; idx++) {
+      const noOfSecondaryLines =
+        position === null
+          ? this.noOfSecondaryLines
+          : this.configuration.noOfSecondaryLines.default;
+
+      for (let idx = 0; idx < noOfSecondaryLines; idx++) {
         let xDiff, yDiff;
 
         if (prevPrevPrimaryLine) {
@@ -623,8 +619,9 @@ export default class GridTool extends BaseAnnotationTool {
       // We are generating first primary line
       const x = position.x + config.currentTool * this.spacing;
 
-      points = Array.from({ length: this.noOfSecondaryLines }, () =>
-        Object({ x, y: position.y, primaryLineIdx: 0 })
+      points = Array.from(
+        { length: this.configuration.noOfSecondaryLines.default },
+        () => Object({ x, y: position.y, primaryLineIdx: 0 })
       ).map((point, idx, arr) => {
         if (idx === 0) {
           return point;
@@ -731,25 +728,40 @@ export default class GridTool extends BaseAnnotationTool {
     this.fireModifiedEvent();
   }
 
+  setOffset(newLocation = { x: 0, y: 0 }, usingMouseInput = false) {
+    if (isNaN(newLocation.x)) {
+      newLocation.x = 0;
+    }
+    if (isNaN(newLocation.y)) {
+      newLocation.y = 0;
+    }
+
+    const toolState = getToolState(this.element, this.name);
+
+    const config = this.configuration;
+    const currentTool = usingMouseInput ? config.currentTool : 0;
+    const currentHandle = usingMouseInput ? config.currentHandle : 0;
+
+    const points = toolState.data[currentTool].handles.points;
+
+    const xChange = newLocation.x - points[currentHandle].x;
+    const yChange = newLocation.y - points[currentHandle].y;
+
+    for (const tool of toolState.data) {
+      for (const point of tool.handles.points) {
+        point.x += xChange;
+        point.y += yChange;
+      }
+    }
+
+    external.cornerstone.updateImage(this.element);
+    this.fireModifiedEvent();
+    this.fireCompletedEvent();
+  }
+
   // ===================================================================
   // Helper methods .
   // ===================================================================
-
-  /**
-   * Check, if grid spacing needs to be adjusted
-   *
-   * @param {string} imageId
-   * @returns {void}
-   */
-  adjustSpacing(imageId) {
-    if (!this.configuration.spacing.hasOwnProperty(imageId)) {
-      this.configuration.spacing[imageId] = this.spacing;
-    }
-    if (this.spacing === this.configuration.spacing[imageId]) {
-      return;
-    }
-    this.onSpacingChange(this.spacing, imageId);
-  }
 
   /**
    * Adjust grid spacing for given image, if it was changed
@@ -759,34 +771,58 @@ export default class GridTool extends BaseAnnotationTool {
    * @returns {void}
    */
   onSpacingChange(newSpacing, imageId) {
-    const existingSpacing = this.configuration.spacing[imageId];
-    const spacingChange = newSpacing - existingSpacing;
-
     const toolState = getToolState(this.element, this.name);
 
+    if (!toolState || !toolState.data) {
+      return;
+    }
+
+    function coordDifferenceBetweenStartAndI(primaryLinePoints, i, component) {
+      if (i === 0) {
+        return 0;
+      }
+      if (i === 1) {
+        return (
+          primaryLinePoints[i][component] - primaryLinePoints[i - 1][component]
+        );
+      }
+
+      return (
+        coordDifferenceBetweenStartAndI(primaryLinePoints, 1, component) * i
+      );
+    }
+
     this.activateDraw();
+
+    const existingSpacing = this.spacing;
 
     for (
       let primaryLineIdx = 0;
       primaryLineIdx < toolState.data.length;
       primaryLineIdx++
     ) {
-      let primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
+      const primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
 
-      primaryLinePoints = primaryLinePoints.map((point, pointIdx) => {
-        point.x += primaryLineIdx * spacingChange;
-        if (pointIdx !== 0) {
-          point.y += pointIdx * spacingChange;
-        }
+      const dx =
+        (coordDifferenceBetweenStartAndI(primaryLinePoints, 1, 'x') /
+          existingSpacing) *
+        newSpacing;
+      const dy =
+        (coordDifferenceBetweenStartAndI(primaryLinePoints, 1, 'y') /
+          existingSpacing) *
+        newSpacing;
+
+      primaryLinePoints.map((point, pointIdx) => {
+        point.x = primaryLinePoints[0].x + dx * pointIdx;
+        point.y = primaryLinePoints[0].y + dy * pointIdx;
 
         return point;
       });
     }
 
-    this.completeDrawing();
-
-    this.configuration.spacing.global = newSpacing;
     this.configuration.spacing[imageId] = newSpacing;
+
+    this.completeDrawing();
   }
 
   /**
@@ -826,7 +862,7 @@ export default class GridTool extends BaseAnnotationTool {
   }
 
   /**
-   * Set moving mode for grid
+   * Set moving mode for all grids
    * @param {boolean} value - if true, moves with selected point, otherwise moves with whole grid
    */
   set moveOneHandleOnly(value) {
@@ -838,14 +874,23 @@ export default class GridTool extends BaseAnnotationTool {
 
     this.configuration.moveOneHandleOnly = value;
     external.cornerstone.updateImage(this.element);
+
+    this.fireModifiedEvent();
+    this.fireCompletedEvent();
   }
 
   /**
    * Get number of primary lines for current image's grid
-   * @returns {number}
+   * @returns {number|null}
    */
   get noOfPrimaryLines() {
-    return this.configuration.noOfPrimaryLines.global;
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState || !toolState.data || !toolState.data.length) {
+      return null;
+    }
+
+    return toolState.data.length;
   }
 
   /**
@@ -880,16 +925,20 @@ export default class GridTool extends BaseAnnotationTool {
     }
 
     this.completeDrawing();
-
-    this.configuration.noOfPrimaryLines.global = newNoOfPrimaryLines;
   }
 
   /**
    * Get number of secondary lines for current image's grid
-   * @returns {number}
+   * @returns {number|null}
    */
   get noOfSecondaryLines() {
-    return this.configuration.noOfSecondaryLines.global;
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState || !toolState.data || !toolState.data.length) {
+      return null;
+    }
+
+    return toolState.data[0].handles.points.length;
   }
 
   /**
@@ -924,7 +973,6 @@ export default class GridTool extends BaseAnnotationTool {
     }
 
     this.completeDrawing();
-    this.configuration.noOfSecondaryLines.global = newNoOfSecondaryLines;
   }
 
   /**
@@ -932,7 +980,14 @@ export default class GridTool extends BaseAnnotationTool {
    * @returns {number}
    */
   get spacing() {
-    return this.configuration.spacing.global;
+    // todo: this will be not known once returned from server
+    const imageId = external.cornerstone.getImage(this.element).imageId;
+
+    const spacingForImageId = this.configuration.spacing[imageId];
+
+    return spacingForImageId === undefined
+      ? this.configuration.spacing.default
+      : spacingForImageId;
   }
 
   /**
@@ -949,6 +1004,49 @@ export default class GridTool extends BaseAnnotationTool {
     const imageId = external.cornerstone.getImage(this.element).imageId;
 
     this.onSpacingChange(value, imageId);
+  }
+
+  /**
+   * Get grid's angle
+   * @returns {number|null}
+   */
+  get angle() {
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState || !toolState.data || !toolState.data.length) {
+      return null;
+    }
+
+    const firstPrimaryLine = toolState.data[0];
+
+    const topLeftPoint = firstPrimaryLine.handles.points[0];
+    const bottomLeftPoint =
+      firstPrimaryLine.handles.points[this.noOfSecondaryLines - 1];
+
+    const centerLeftPoint = {
+      x: (topLeftPoint.x + bottomLeftPoint.x) / 2,
+      y: (topLeftPoint.y + bottomLeftPoint.y) / 2,
+    };
+
+    const centerPoint = this.getGridMiddlePointCoords();
+    const adjacentPoint = { x: centerLeftPoint.x, y: centerPoint.y };
+
+    const centerToAdjacentLength = centerPoint.x - adjacentPoint.x;
+    const adjacentToCenterLeftLength = adjacentPoint.y - centerLeftPoint.y;
+
+    const angleTan = adjacentToCenterLeftLength / centerToAdjacentLength;
+
+    return Math.round((Math.atan(angleTan) * 180) / Math.PI);
+  }
+
+  /**
+   * Set grid's angle
+   * @param {number} newAngle
+   */
+  set angle(newAngle) {
+    const angleDiff = newAngle - this.angle;
+
+    this.rotateGrid(angleDiff);
   }
 
   /**
@@ -1000,13 +1098,13 @@ function defaultToolConfiguration() {
     },
     moveOneHandleOnly: true,
     noOfPrimaryLines: {
-      global: 10,
+      default: 10,
     },
     noOfSecondaryLines: {
-      global: 10,
+      default: 10,
     },
     spacing: {
-      global: 5,
+      default: 5,
     },
   };
 }
