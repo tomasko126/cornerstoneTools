@@ -722,11 +722,11 @@ export default class GridTool extends BaseAnnotationTool {
   }
 
   setOffset(newLocation = { x: 0, y: 0 }, usingMouseInput = false) {
-    if (isNaN(newLocation.x)) {
-      newLocation.x = 0;
+    if (isNaN(newLocation.x) || newLocation.x < 0) {
+      return;
     }
-    if (isNaN(newLocation.y)) {
-      newLocation.y = 0;
+    if (isNaN(newLocation.y) || newLocation.y < 0) {
+      return;
     }
 
     const toolState = getToolState(this.element, this.name);
@@ -976,6 +976,10 @@ export default class GridTool extends BaseAnnotationTool {
       );
     }
 
+    if (isNaN(newNoOfPrimaryLines) || newNoOfPrimaryLines < 2) {
+      return;
+    }
+
     let existingNoOfPrimaryLines = this.noOfPrimaryLines;
 
     if (newNoOfPrimaryLines === existingNoOfPrimaryLines) {
@@ -1022,6 +1026,10 @@ export default class GridTool extends BaseAnnotationTool {
       throw new Error(
         'Attempting to set noOfSecondaryLines to a value other than a number.'
       );
+    }
+
+    if (isNaN(newNoOfSecondaryLines) || newNoOfSecondaryLines < 2) {
+      return;
     }
 
     let existingNoOfSecondaryLines = this.noOfSecondaryLines;
@@ -1073,6 +1081,10 @@ export default class GridTool extends BaseAnnotationTool {
       );
     }
 
+    if (isNaN(value) || value < 1) {
+      return;
+    }
+
     const imageId = external.cornerstone.getImage(this.element).imageId;
 
     this.onSpacingChange(value, imageId);
@@ -1116,6 +1128,16 @@ export default class GridTool extends BaseAnnotationTool {
    * @param {number} newAngle
    */
   set angle(newAngle) {
+    if (typeof newAngle !== 'number') {
+      throw new Error(
+        'Attempting to set angle to a value other than a number.'
+      );
+    }
+
+    if (isNaN(newAngle) || newAngle < 0 || newAngle > 90) {
+      return;
+    }
+
     const angleDiff = newAngle - this.angle;
 
     this.rotateGrid(angleDiff);
@@ -1130,7 +1152,7 @@ export default class GridTool extends BaseAnnotationTool {
   rotateGrid(angle) {
     const toolState = getToolState(this.element, this.name);
 
-    if (!toolState.data.length) {
+    if (!toolState || !toolState.data || !toolState.data.length) {
       return;
     }
 
