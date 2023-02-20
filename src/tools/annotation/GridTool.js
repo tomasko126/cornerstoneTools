@@ -752,7 +752,15 @@ export default class GridTool extends BaseAnnotationTool {
   }
 
   removeGrid() {
+    // Clear grid state
     clearToolState(this.element, 'Grid');
+
+    // Update spacing
+    this.configuration.spacing = {
+      default: 5,
+    };
+
+    // Update image
     external.cornerstone.updateImage(this.element);
     this.fireRemovedEvent();
   }
