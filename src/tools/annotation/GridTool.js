@@ -6,6 +6,7 @@ import BaseAnnotationTool from './../base/BaseAnnotationTool.js';
 import {
   addToolState,
   getToolState,
+  clearToolState,
 } from './../../stateManagement/toolState.js';
 import { state } from '../../store/index.js';
 
@@ -334,7 +335,6 @@ export default class GridTool extends BaseAnnotationTool {
 
     external.cornerstone.updateImage(this.element);
 
-    this.fireModifiedEvent();
     this.fireCompletedEvent();
   }
 
@@ -536,18 +536,12 @@ export default class GridTool extends BaseAnnotationTool {
     };
   }
 
-  /**
-   * Fire MEASUREMENT_MODIFIED event on provided element
-   *
-   * @returns {void}
-   */
-  fireModifiedEvent() {
-    const eventType = EVENTS.MEASUREMENT_MODIFIED;
+  fireRemovedEvent() {
+    const eventType = EVENTS.MEASUREMENT_REMOVED;
     const eventData = {
       toolName: this.name,
       toolType: this.name, // Deprecation notice: toolType will be replaced by toolName
       element: this.element,
-      measurementData: this.getToolsStateAndConfig(),
     };
 
     triggerEvent(this.element, eventType, eventData);
@@ -725,7 +719,6 @@ export default class GridTool extends BaseAnnotationTool {
 
     // Force onImageRendered to fire
     external.cornerstone.updateImage(this.element);
-    this.fireModifiedEvent();
   }
 
   setOffset(newLocation = { x: 0, y: 0 }, usingMouseInput = false) {
@@ -755,8 +748,13 @@ export default class GridTool extends BaseAnnotationTool {
     }
 
     external.cornerstone.updateImage(this.element);
-    this.fireModifiedEvent();
     this.fireCompletedEvent();
+  }
+
+  removeGrid() {
+    clearToolState(this.element, 'Grid');
+    external.cornerstone.updateImage(this.element);
+    this.fireRemovedEvent();
   }
 
   // ===================================================================
@@ -773,22 +771,57 @@ export default class GridTool extends BaseAnnotationTool {
   onSpacingChange(newSpacing, imageId) {
     const toolState = getToolState(this.element, this.name);
 
-    if (!toolState || !toolState.data) {
+    if (!toolState || !toolState.data || !toolState.data.length) {
       return;
     }
 
-    function coordDifferenceBetweenStartAndI(primaryLinePoints, i, component) {
-      if (i === 0) {
+    function coordDiffBetweenFirstAndIthPointOnPrimaryLine(
+      primaryLineIdx,
+      ithPointOnPrimaryLine,
+      component
+    ) {
+      if (ithPointOnPrimaryLine === 0) {
         return 0;
       }
-      if (i === 1) {
+
+      const primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
+
+      if (ithPointOnPrimaryLine === 1) {
         return (
-          primaryLinePoints[i][component] - primaryLinePoints[i - 1][component]
+          primaryLinePoints[ithPointOnPrimaryLine][component] -
+          primaryLinePoints[ithPointOnPrimaryLine - 1][component]
         );
       }
 
       return (
-        coordDifferenceBetweenStartAndI(primaryLinePoints, 1, component) * i
+        coordDiffBetweenFirstAndIthPointOnPrimaryLine(
+          primaryLineIdx,
+          1,
+          component
+        ) * ithPointOnPrimaryLine
+      );
+    }
+
+    function coordDiffBetweenFirstAndIthPrimaryLine(
+      ithPrimaryLineIdx,
+      component
+    ) {
+      if (ithPrimaryLineIdx === 0) {
+        return 0;
+      }
+
+      const firstPrimaryLinePoints = toolState.data[0].handles.points;
+      const secondPrimaryLinePoints = toolState.data[1].handles.points;
+
+      if (ithPrimaryLineIdx === 1) {
+        return (
+          secondPrimaryLinePoints[0][component] -
+          firstPrimaryLinePoints[0][component]
+        );
+      }
+
+      return (
+        coordDiffBetweenFirstAndIthPrimaryLine(1, component) * ithPrimaryLineIdx
       );
     }
 
@@ -796,21 +829,53 @@ export default class GridTool extends BaseAnnotationTool {
 
     const existingSpacing = this.spacing;
 
+    const ddx =
+      (coordDiffBetweenFirstAndIthPrimaryLine(1, 'x') / existingSpacing) *
+      newSpacing;
+    const ddy =
+      (coordDiffBetweenFirstAndIthPrimaryLine(1, 'y') / existingSpacing) *
+      newSpacing;
+
+    // Adjust spacing between primary lines
+    for (
+      let secondaryLineIdx = 0;
+      secondaryLineIdx < this.noOfSecondaryLines;
+      secondaryLineIdx++
+    ) {
+      for (
+        let primaryLineIdx = 0;
+        primaryLineIdx < this.noOfPrimaryLines;
+        primaryLineIdx++
+      ) {
+        if (primaryLineIdx === 0) {
+          continue;
+        }
+
+        const currentPoint =
+          toolState.data[primaryLineIdx].handles.points[secondaryLineIdx];
+        const firstPoint = toolState.data[0].handles.points[secondaryLineIdx];
+
+        currentPoint.x = firstPoint.x + ddx * primaryLineIdx;
+        currentPoint.y = firstPoint.y + ddy * primaryLineIdx;
+      }
+    }
+
+    // Adjust spacing between secondary lines
     for (
       let primaryLineIdx = 0;
       primaryLineIdx < toolState.data.length;
       primaryLineIdx++
     ) {
-      const primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
-
       const dx =
-        (coordDifferenceBetweenStartAndI(primaryLinePoints, 1, 'x') /
+        (coordDiffBetweenFirstAndIthPointOnPrimaryLine(primaryLineIdx, 1, 'x') /
           existingSpacing) *
         newSpacing;
       const dy =
-        (coordDifferenceBetweenStartAndI(primaryLinePoints, 1, 'y') /
+        (coordDiffBetweenFirstAndIthPointOnPrimaryLine(primaryLineIdx, 1, 'y') /
           existingSpacing) *
         newSpacing;
+
+      const primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
 
       primaryLinePoints.map((point, pointIdx) => {
         point.x = primaryLinePoints[0].x + dx * pointIdx;
@@ -875,7 +940,6 @@ export default class GridTool extends BaseAnnotationTool {
     this.configuration.moveOneHandleOnly = value;
     external.cornerstone.updateImage(this.element);
 
-    this.fireModifiedEvent();
     this.fireCompletedEvent();
   }
 
