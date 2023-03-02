@@ -163,18 +163,11 @@ export default class GridTool extends BaseAnnotationTool {
 
         let options = { color };
 
-        if (
-          data.handles.points.length &&
-          data.handles.points[0].isCommonPoint
-        ) {
+        const points = data.handles.points;
+
+        if (points.length && points[0].isCommonPoint) {
           // Draw primary lines
-          drawJoinedLines(
-            context,
-            element,
-            data.handles.points[0],
-            data.handles.points,
-            options
-          );
+          drawJoinedLines(context, element, points[0], points, options);
         }
 
         // Draw handles
@@ -214,21 +207,30 @@ export default class GridTool extends BaseAnnotationTool {
             continue;
           }
 
-          const points = toolState.data
-            .filter((primaryLine, primaryLineIdx) => primaryLineIdx !== 0)
-            .map((line, idx) => {
-              if (this.showRefinementPoints) {
-                if ((idx + 1) % 4 === 0) {
-                  return line.handles.points[secondaryLineIdx];
-                }
+          const points = [];
 
-                return line.handles.points[
-                  pointsIdxOnPrimaryLineWithoutRefinementPoints
-                ];
+          for (
+            let primaryLineIdx = 1;
+            primaryLineIdx < this.totalNoOfPrimaryLines;
+            primaryLineIdx++
+          ) {
+            const primaryLine = toolState.data[primaryLineIdx];
+
+            if (this.showRefinementPoints) {
+              if (primaryLineIdx % 4 === 0) {
+                points.push(primaryLine.handles.points[secondaryLineIdx]);
+                continue;
               }
 
-              return line.handles.points[secondaryLineIdx];
-            });
+              points.push(
+                primaryLine.handles.points[
+                  pointsIdxOnPrimaryLineWithoutRefinementPoints
+                ]
+              );
+              continue;
+            }
+            points.push(primaryLine.handles.points[secondaryLineIdx]);
+          }
 
           // Draw secondary lines
           drawJoinedLines(
@@ -813,15 +815,8 @@ export default class GridTool extends BaseAnnotationTool {
         pointIdx < this.totalNoOfSecondaryLines;
         pointIdx++
       ) {
-        if (toolState.data[fromMainPrimaryLine] === undefined) {
-          console.log('undefined');
-        }
         const ithCommonPointOnFromPrimaryLine =
           toolState.data[fromMainPrimaryLine].handles.points[pointIdx];
-
-        if (ithCommonPointOnFromPrimaryLine === undefined) {
-          console.log('undef');
-        }
 
         if (!ithCommonPointOnFromPrimaryLine.isCommonPoint) {
           continue;
@@ -837,10 +832,6 @@ export default class GridTool extends BaseAnnotationTool {
 
         const ithCommonPointOnToPrimaryLine =
           nextPrimaryLine.handles.points[pointIdx];
-
-        if (ithCommonPointOnToPrimaryLine === undefined) {
-          console.log('undef');
-        }
 
         const xDiff =
           ithCommonPointOnToPrimaryLine.x - ithCommonPointOnFromPrimaryLine.x;
@@ -1438,14 +1429,9 @@ export default class GridTool extends BaseAnnotationTool {
           existingSpacing) *
         newSpacing;
 
-      console.log(dx, dy);
-
       const primaryLinePoints = toolState.data[primaryLineIdx].handles.points;
 
       primaryLinePoints.map((point, pointIdx) => {
-        if (this.showRefinementPoints && primaryLineIdx % 4 !== 0) {
-          // pointIdx += 4;
-        }
         point.x = primaryLinePoints[0].x + dx * pointIdx;
         point.y = primaryLinePoints[0].y + dy * pointIdx;
 
