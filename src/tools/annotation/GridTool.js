@@ -74,7 +74,20 @@ export default class GridTool extends BaseAnnotationTool {
       return false;
     }
 
+    const toolState = getToolState(this.element, this.name);
+
+    if (data.handles.points[0] === toolState.data[0].handles.points[0]) {
+      this.configuration.highlighting.primaryLineIdxInLoop = 0;
+      this.configuration.highlighting.secondaryLineIdx = undefined;
+    } else {
+      this.configuration.highlighting.primaryLineIdxInLoop += 1;
+    }
+
     const isPointNearTool = this._pointNearHandle(data, coords);
+
+    if (isPointNearTool !== undefined) {
+      this.configuration.highlighting.secondaryLineIdx = isPointNearTool;
+    }
 
     return isPointNearTool !== undefined;
   }
@@ -166,7 +179,7 @@ export default class GridTool extends BaseAnnotationTool {
         const points = data.handles.points;
 
         if (points.length && points[0].isCommonPoint) {
-          // Draw primary lines
+          // Draw primary line
           drawJoinedLines(context, element, points[0], points, options);
         }
 
@@ -181,19 +194,21 @@ export default class GridTool extends BaseAnnotationTool {
           point => point.isCommonPoint
         );
 
-        drawHandles(context, eventData, commonPoints, options);
+        if (commonPoints.length) {
+          drawHandles(context, eventData, commonPoints, options);
+        }
 
         const refinementPoints = data.handles.points.filter(
           point => !point.isCommonPoint
         );
 
-        options.handleRadius -= 2;
-        drawHandles(context, eventData, refinementPoints, options);
+        if (refinementPoints.length) {
+          options.handleRadius -= 2;
+          drawHandles(context, eventData, refinementPoints, options);
+        }
       });
 
       draw(context, context => {
-        const options = { color: toolColors.getToolColor() };
-
         let pointsIdxOnPrimaryLineWithoutRefinementPoints = 0;
 
         for (
@@ -205,6 +220,15 @@ export default class GridTool extends BaseAnnotationTool {
             !toolState.data[0].handles.points[secondaryLineIdx].isCommonPoint
           ) {
             continue;
+          }
+
+          const options = { color: toolColors.getToolColor() };
+
+          if (
+            this.configuration.highlighting.secondaryLineIdx ===
+            secondaryLineIdx
+          ) {
+            options.color = toolColors.getActiveColor();
           }
 
           const points = [];
@@ -621,33 +645,7 @@ export default class GridTool extends BaseAnnotationTool {
     triggerEvent(this.element, eventType, eventData);
   }
 
-  containsPrimaryLineRefinementPoints(primaryLineIdx) {
-    const toolState = getToolState(this.element, this.name);
-
-    if (!toolState || !toolState.data || !toolState.data.length) {
-      return null;
-    }
-
-    const primaryLinePointsLength =
-      toolState.data[primaryLineIdx].handles.points.length;
-
-    for (
-      let secondaryLineIdx = 0;
-      secondaryLineIdx < primaryLinePointsLength;
-      secondaryLineIdx++
-    ) {
-      const point =
-        toolState.data[primaryLineIdx].handles.points[secondaryLineIdx];
-
-      if (!point.isCommonPoint) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  getAllPrimaryLinesWithoutRefinementPoints(fromPrimaryLineIdx = null) {
+  getAllMainPrimaryLines(fromPrimaryLineIdx = null) {
     const toolState = getToolState(this.element, this.name);
 
     if (!toolState || !toolState.data || !toolState.data.length) {
@@ -656,35 +654,28 @@ export default class GridTool extends BaseAnnotationTool {
 
     const primaryLines = new Map();
 
-    for (
-      let primaryLineIdx = fromPrimaryLineIdx || 0;
-      primaryLineIdx < this.totalNoOfPrimaryLines;
-      primaryLineIdx++
-    ) {
-      if (
-        fromPrimaryLineIdx !== null &&
-        primaryLineIdx === fromPrimaryLineIdx
-      ) {
-        primaryLines.set(primaryLineIdx, toolState.data[primaryLineIdx]);
-        continue;
-      }
-      if (!this.containsPrimaryLineRefinementPoints(primaryLineIdx)) {
-        primaryLines.set(primaryLineIdx, toolState.data[primaryLineIdx]);
-      }
+    if (fromPrimaryLineIdx !== null) {
+      primaryLines.set(fromPrimaryLineIdx, toolState.data[fromPrimaryLineIdx]);
+    }
+
+    let nextPrimaryLineData = this.getNextMainPrimaryLine(
+      fromPrimaryLineIdx || 0
+    );
+
+    while (nextPrimaryLineData.primaryLine !== null) {
+      primaryLines.set(
+        nextPrimaryLineData.idx,
+        nextPrimaryLineData.primaryLine
+      );
+      nextPrimaryLineData = this.getNextMainPrimaryLine(
+        nextPrimaryLineData.idx
+      );
     }
 
     return primaryLines;
   }
 
-  // todo: generate primary line method - this will generate primary line only without any refinement point - done
-  //       generate secondary line method - this will generate secondary line only without any refinement point - done
-  //       generate refinement points in range x,y for primary line
-  //       generate refinement points in range x,y for secondary line
-  //       delete refinement points in range x,y for primary line
-  //       delete refinement points in range x,y for secondary line
-  //       merge probably last 4 methods into only 2 if it's possible
-
-  getPreviousPrimaryLineWithCommonPoints(currentPrimaryLineIdx) {
+  getPreviousMainPrimaryLine(currentPrimaryLineIdx) {
     const toolState = getToolState(this.element, this.name);
 
     if (!toolState || !toolState.data || !toolState.data.length) {
@@ -759,40 +750,50 @@ export default class GridTool extends BaseAnnotationTool {
       return null;
     }
 
-    const commonPoints = primaryLine.handles.points.filter(
-      point => point.isCommonPoint
-    );
+    let commonPointIdx = -1;
 
-    if (!commonPoints) {
-      return null;
+    for (
+      let ithPoint = 0;
+      ithPoint < primaryLine.handles.points.length;
+      ithPoint++
+    ) {
+      const point = primaryLine.handles.points[ithPoint];
+
+      if (point.isCommonPoint) {
+        commonPointIdx++;
+      }
+
+      if (commonPointIdx === ithCommonPoint) {
+        return point;
+      }
     }
 
-    return commonPoints[ithCommonPoint];
+    return null;
   }
 
   generateSubsidiaryPrimaryLines(
-    fromMainPrimaryLine,
-    toMainPrimaryLine,
+    fromMainPrimaryLineIdx,
+    toMainPrimaryLineIdx,
     createNewSubsidiaryLines = true,
-    fromSecondaryLine = null
+    fromSecondaryLineIdx = null
   ) {
-    const noOfCalls = toMainPrimaryLine - fromMainPrimaryLine;
+    const noOfCalls = toMainPrimaryLineIdx - fromMainPrimaryLineIdx;
 
-    let beginning = fromMainPrimaryLine;
+    let beginning = fromMainPrimaryLineIdx;
 
     for (let call = 0; call < noOfCalls; call++) {
-      this.generateSubsidiaryPrimaryLine(
+      this._generateSubsidiaryPrimaryLine(
         beginning,
-        fromSecondaryLine,
+        fromSecondaryLineIdx,
         createNewSubsidiaryLines
       );
       beginning += 4;
     }
   }
 
-  generateSubsidiaryPrimaryLine(
-    fromMainPrimaryLine,
-    fromSecondaryLine = null,
+  _generateSubsidiaryPrimaryLine(
+    fromMainPrimaryLineIdx,
+    fromSecondaryLineIdx = null,
     createNewSubsidiaryLines = true
   ) {
     const toolState = getToolState(this.element, this.name);
@@ -811,19 +812,19 @@ export default class GridTool extends BaseAnnotationTool {
       subsidiaryPrimaryLineIdx++
     ) {
       for (
-        let pointIdx = fromSecondaryLine || 0;
+        let pointIdx = fromSecondaryLineIdx || 0;
         pointIdx < this.totalNoOfSecondaryLines;
         pointIdx++
       ) {
         const ithCommonPointOnFromPrimaryLine =
-          toolState.data[fromMainPrimaryLine].handles.points[pointIdx];
+          toolState.data[fromMainPrimaryLineIdx].handles.points[pointIdx];
 
         if (!ithCommonPointOnFromPrimaryLine.isCommonPoint) {
           continue;
         }
 
         const { primaryLine: nextPrimaryLine } = this.getNextMainPrimaryLine(
-          fromMainPrimaryLine
+          fromMainPrimaryLineIdx
         );
 
         if (nextPrimaryLine === null) {
@@ -846,14 +847,14 @@ export default class GridTool extends BaseAnnotationTool {
           y:
             ithCommonPointOnFromPrimaryLine.y +
             (yDiff / 4) * (subsidiaryPrimaryLineIdx + 1),
-          primaryLineIdx: fromMainPrimaryLine + subsidiaryPrimaryLineIdx + 1,
+          primaryLineIdx: fromMainPrimaryLineIdx + subsidiaryPrimaryLineIdx + 1,
           isCommonPoint: false,
         });
       }
 
-      primaryLineIdxsToCreate.add(fromMainPrimaryLine + 1);
-      primaryLineIdxsToCreate.add(fromMainPrimaryLine + 2);
-      primaryLineIdxsToCreate.add(fromMainPrimaryLine + 3);
+      primaryLineIdxsToCreate.add(fromMainPrimaryLineIdx + 1);
+      primaryLineIdxsToCreate.add(fromMainPrimaryLineIdx + 2);
+      primaryLineIdxsToCreate.add(fromMainPrimaryLineIdx + 3);
     }
 
     if (createNewSubsidiaryLines) {
@@ -903,14 +904,14 @@ export default class GridTool extends BaseAnnotationTool {
         points.push(point);
       }
     } else {
-      const {
-        idx: prevPrimaryLineIdx,
-      } = this.getPreviousPrimaryLineWithCommonPoints(primaryLineIndex);
+      const { idx: prevPrimaryLineIdx } = this.getPreviousMainPrimaryLine(
+        primaryLineIndex
+      );
 
       const {
         primaryLine: prevPrevPrimaryLine,
         idx: prevPrevPrimaryLineIdx,
-      } = this.getPreviousPrimaryLineWithCommonPoints(prevPrimaryLineIdx);
+      } = this.getPreviousMainPrimaryLine(prevPrimaryLineIdx);
 
       const noOfPoints =
         position === null
@@ -964,7 +965,7 @@ export default class GridTool extends BaseAnnotationTool {
       return null;
     }
 
-    let primaryLines = this.getAllPrimaryLinesWithoutRefinementPoints(
+    let primaryLines = this.getAllMainPrimaryLines(
       options.fromPrimaryLineIdx || null
     );
 
@@ -1261,12 +1262,15 @@ export default class GridTool extends BaseAnnotationTool {
 
   removeGrid() {
     // Clear grid state
-    clearToolState(this.element, 'Grid');
+    clearToolState(this.element, this.name);
 
-    // Update spacing
+    // Reset spacing
     this.configuration.spacing = {
       default: 5,
     };
+
+    // Reset showing refinement points setting
+    this.configuration.showRefinementPoints = false;
 
     // Update image
     external.cornerstone.updateImage(this.element);
@@ -1583,9 +1587,7 @@ export default class GridTool extends BaseAnnotationTool {
         this.generateMainPrimaryLine(this.totalNoOfPrimaryLines);
 
         if (this.showRefinementPoints) {
-          const {
-            idx: fromPrimaryLineIdx,
-          } = this.getPreviousPrimaryLineWithCommonPoints(
+          const { idx: fromPrimaryLineIdx } = this.getPreviousMainPrimaryLine(
             this.totalNoOfPrimaryLines
           );
 
@@ -1815,9 +1817,13 @@ export default class GridTool extends BaseAnnotationTool {
 
 function defaultToolConfiguration() {
   return {
-    handleRadius: 3,
     currentHandle: 0,
     currentTool: -1,
+    handleRadius: 3,
+    highlighting: {
+      primaryLineIdxInLoop: 0,
+      secondaryLineIdx: undefined,
+    },
     mouseLocation: {
       handles: {
         start: {
