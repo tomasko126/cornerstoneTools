@@ -156,6 +156,13 @@ export default class GridTool extends BaseAnnotationTool {
     // We have tool data for this element - iterate over each one and draw it
     const context = getNewContext(eventData.canvasContext.canvas);
 
+    const imageId = external.cornerstone.getImage(this.element).imageId;
+    const settingForImageId = this.configuration.showRefinementPoints[imageId];
+
+    if (settingForImageId !== this.configuration.showRefinementPoints.global) {
+      this.showRefinementPoints = this.configuration.showRefinementPoints.global;
+    }
+
     for (let i = 0; i < toolState.data.length; i++) {
       const data = toolState.data[i];
 
@@ -318,14 +325,6 @@ export default class GridTool extends BaseAnnotationTool {
       lineIdx++
     ) {
       this.generateMainPrimaryLine(lineIdx, evt.detail.currentPoints.image);
-    }
-
-    if (this.showRefinementPoints) {
-      this.generateRefinementPointsOnCurrentPrimaryLines();
-      this.generateSubsidiaryPrimaryLines(
-        0,
-        this.configuration.noOfPrimaryLines.default - 1
-      );
     }
 
     this.completeDrawing();
@@ -1477,7 +1476,13 @@ export default class GridTool extends BaseAnnotationTool {
   // ===================================================================
 
   get showRefinementPoints() {
-    return this.configuration.showRefinementPoints;
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState || !toolState.data || !toolState.data.length) {
+      return null;
+    }
+
+    return this.configuration.showRefinementPoints.global;
   }
 
   set showRefinementPoints(value) {
@@ -1487,11 +1492,12 @@ export default class GridTool extends BaseAnnotationTool {
       );
     }
 
-    if (this.showRefinementPoints === value) {
+    const imageId = external.cornerstone.getImage(this.element).imageId;
+
+    if (this.configuration.showRefinementPoints[imageId] === value) {
       return null;
     }
 
-    // todo: delete refinement points if value is false, add points if value is true
     if (value) {
       this.generateSubsidiaryPrimaryLines(0, this.totalNoOfPrimaryLines - 1);
       this.generateRefinementPointsOnCurrentPrimaryLines();
@@ -1499,7 +1505,8 @@ export default class GridTool extends BaseAnnotationTool {
       this.removeAllRefinementPoints();
     }
 
-    this.configuration.showRefinementPoints = value;
+    this.configuration.showRefinementPoints.global = value;
+    this.configuration.showRefinementPoints[imageId] = value;
 
     external.cornerstone.updateImage(this.element);
 
@@ -1674,7 +1681,6 @@ export default class GridTool extends BaseAnnotationTool {
             fromSecondaryLineIdx: existingNoOfSecondaryLines - 2,
           });
 
-          // todo: other method name
           this.generateSubsidiaryPrimaryLines(
             0,
             this.noOfPrimaryLines,
@@ -1695,9 +1701,15 @@ export default class GridTool extends BaseAnnotationTool {
 
   /**
    * Get grid spacing of current image
-   * @returns {number}
+   * @returns {number|null}
    */
   get spacing() {
+    const toolState = getToolState(this.element, this.name);
+
+    if (!toolState || !toolState.data || !toolState.data.length) {
+      return null;
+    }
+
     // todo: this will be not known once returned from server
     const imageId = external.cornerstone.getImage(this.element).imageId;
 
@@ -1842,7 +1854,9 @@ function defaultToolConfiguration() {
     spacing: {
       default: 5,
     },
-    showRefinementPoints: false,
+    showRefinementPoints: {
+      global: false,
+    },
   };
 }
 
