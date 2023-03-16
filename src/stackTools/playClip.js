@@ -95,7 +95,7 @@ function triggerStopEvent(element) {
  * The element must be a stack of images
  * @param {HTMLElement} element
  * @param {number} framesPerSecond
- * @param {{ fromIdx: number, toIdx: number }} options
+ * @param {{ fromIdx: number, toIdx: number, loop: boolean }} options
  * @returns {void}
  */
 function playClip(element, framesPerSecond, options) {
@@ -147,11 +147,13 @@ function playClip(element, framesPerSecond, options) {
       usingFrameTimeVector: false,
       speed: 1,
       reverse: false,
-      loop: true,
+      loop: options.loop === undefined ? true : options.loop,
+      stopNextTime: false,
     };
     addToolState(element, toolName, playClipData);
   } else {
     playClipData = playClipToolData.data[0];
+    playClipData.loop = options.loop === undefined ? true : options.loop;
     // Make sure the specified clip is not running before any property update
     stopClipWithData(playClipData);
   }
@@ -185,8 +187,6 @@ function playClip(element, framesPerSecond, options) {
       errorLoadingHandler,
       newImageIdIndex = stackData.currentImageIdIndex;
 
-    const imageCount = stackData.imageIds.length;
-
     if (playClipData.reverse) {
       newImageIdIndex--;
     } else {
@@ -194,13 +194,17 @@ function playClip(element, framesPerSecond, options) {
     }
 
     if (
-      !playClipData.loop &&
-      (newImageIdIndex < options.fromIdx || newImageIdIndex >= options.toIdx)
+      playClipData.loop === false &&
+      newImageIdIndex - 1 === options.fromIdx
     ) {
-      stopClipWithData(playClipData);
-      triggerStopEvent(element);
+      if (playClipData.stopNextTime) {
+        stopClipWithData(playClipData);
+        triggerStopEvent(element);
+        playClipData.stopNextTime = false;
 
-      return;
+        return;
+      }
+      playClipData.stopNextTime = true;
     }
 
     // Loop around if we go outside the stack
