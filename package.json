@@ -1,6 +1,6 @@
 {
   "name": "@tarotoma/cornerstone-tools",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "Medical imaging tools for the Cornerstone library",
   "main": "./dist/cornerstoneTools.js",
   "keywords": [
