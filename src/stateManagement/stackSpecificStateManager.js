@@ -73,6 +73,7 @@ function newStackSpecificToolStateManager(toolNames, oldStateManager) {
     saveToolState,
     restoreToolState,
     toolState,
+    oldStateManager,
   };
 
   return stackSpecificToolStateManager;
