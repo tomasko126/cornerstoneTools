@@ -33,13 +33,14 @@ function getElementToolStateManager(element) {
  * @param  {HTMLElement} element  The element.
  * @param  {string} toolName      The name of the tool the state belongs to.
  * @param  {Object} measurementData The data to store in the state.
+ * @param  {Number} [idx=null] What index data should be pushed to
  * @returns {undefined}
  */
-function addToolState(element, toolName, measurementData) {
+function addToolState(element, toolName, measurementData, idx = null) {
   const toolStateManager = getElementToolStateManager(element);
 
   measurementData.uuid = measurementData.uuid || uuidv4();
-  toolStateManager.add(element, toolName, measurementData);
+  toolStateManager.add(element, toolName, measurementData, idx);
 
   const eventType = EVENTS.MEASUREMENT_ADDED;
   const eventData = {

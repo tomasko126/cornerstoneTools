@@ -95,9 +95,10 @@ function triggerStopEvent(element) {
  * The element must be a stack of images
  * @param {HTMLElement} element
  * @param {number} framesPerSecond
+ * @param {{ fromIdx: number, toIdx: number, loop: boolean }} options
  * @returns {void}
  */
-function playClip(element, framesPerSecond) {
+function playClip(element, framesPerSecond, options) {
   let playClipData;
   let playClipTimeouts;
 
@@ -146,11 +147,13 @@ function playClip(element, framesPerSecond) {
       usingFrameTimeVector: false,
       speed: 1,
       reverse: false,
-      loop: true,
+      loop: options.loop === undefined ? true : options.loop,
+      stopNextTime: false,
     };
     addToolState(element, toolName, playClipData);
   } else {
     playClipData = playClipToolData.data[0];
+    playClipData.loop = options.loop === undefined ? true : options.loop;
     // Make sure the specified clip is not running before any property update
     stopClipWithData(playClipData);
   }
@@ -184,8 +187,6 @@ function playClip(element, framesPerSecond) {
       errorLoadingHandler,
       newImageIdIndex = stackData.currentImageIdIndex;
 
-    const imageCount = stackData.imageIds.length;
-
     if (playClipData.reverse) {
       newImageIdIndex--;
     } else {
@@ -193,22 +194,26 @@ function playClip(element, framesPerSecond) {
     }
 
     if (
-      !playClipData.loop &&
-      (newImageIdIndex < 0 || newImageIdIndex >= imageCount)
+      playClipData.loop === false &&
+      newImageIdIndex - 1 === options.fromIdx
     ) {
-      stopClipWithData(playClipData);
-      triggerStopEvent(element);
+      if (playClipData.stopNextTime) {
+        stopClipWithData(playClipData);
+        triggerStopEvent(element);
+        playClipData.stopNextTime = false;
 
-      return;
+        return;
+      }
+      playClipData.stopNextTime = true;
     }
 
     // Loop around if we go outside the stack
-    if (newImageIdIndex >= imageCount) {
-      newImageIdIndex = 0;
+    if (newImageIdIndex > options.toIdx) {
+      newImageIdIndex = options.fromIdx;
     }
 
-    if (newImageIdIndex < 0) {
-      newImageIdIndex = imageCount - 1;
+    if (newImageIdIndex < options.fromIdx) {
+      newImageIdIndex = options.fromIdx;
     }
 
     if (newImageIdIndex !== stackData.currentImageIdIndex) {

@@ -28,7 +28,7 @@ function newStackSpecificToolStateManager(toolNames, oldStateManager) {
 
   // Here we add tool state, this is done by tools as well
   // As modules that restore saved state
-  function addStackSpecificToolState(element, toolName, data) {
+  function addStackSpecificToolState(element, toolName, data, idx = null) {
     // If this is a tool type to apply to the stack, do so
     if (toolNames.indexOf(toolName) >= 0) {
       // If we don't have tool state for this tool name, add an empty object
@@ -44,7 +44,7 @@ function newStackSpecificToolStateManager(toolNames, oldStateManager) {
       toolData.data.push(data);
     } else {
       // Call the imageId specific tool state manager
-      return oldStateManager.add(element, toolName, data);
+      return oldStateManager.add(element, toolName, data, idx);
     }
   }
 
@@ -73,6 +73,7 @@ function newStackSpecificToolStateManager(toolNames, oldStateManager) {
     saveToolState,
     restoreToolState,
     toolState,
+    oldStateManager,
   };
 
   return stackSpecificToolStateManager;
