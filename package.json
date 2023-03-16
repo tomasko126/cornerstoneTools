@@ -1,6 +1,6 @@
 {
-  "name": "cornerstone-tools",
-  "version": "0.0.0-semantically-released",
+  "name": "@tarotoma/cornerstone-tools",
+  "version": "6.1.0",
   "description": "Medical imaging tools for the Cornerstone library",
   "main": "./dist/cornerstoneTools.js",
   "keywords": [
@@ -9,12 +9,12 @@
     "imaging",
     "cornerstone"
   ],
-  "author": "https://github.com/cornerstonejs/cornerstoneTools#contributors",
-  "homepage": "https://github.com/cornerstonejs/cornerstoneTools",
+  "author": "https://github.com/tomasko126/cornerstoneTools#contributors",
+  "homepage": "https://github.com/tomasko126/cornerstoneTools",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cornerstonejs/cornerstoneTools.git"
+    "url": "https://github.com/tomasko126/cornerstoneTools.git"
   },
   "engines": {
     "node": ">=8.16.0"
