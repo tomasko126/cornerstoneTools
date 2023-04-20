@@ -640,9 +640,10 @@ export default class GridTool extends BaseAnnotationTool {
    * Retrieve state for a given imageId
    *
    * @param {string} imageId
+   * @param {boolean} compact - if true, no additional data except of points will be returned
    * @returns {*|*[]|null}
    */
-  getStateForImageId(imageId) {
+  getStateForImageId(imageId, compact = false) {
     const toolStateManager = getElementToolStateManager(this.element);
     const imageIdStateManager = toolStateManager.oldStateManager;
 
@@ -652,11 +653,29 @@ export default class GridTool extends BaseAnnotationTool {
 
     const imageIdState = imageIdStateManager.saveImageIdToolState(imageId);
 
-    return imageIdState &&
-      imageIdState[this.name] &&
-      imageIdState[this.name].data
-      ? imageIdState[this.name].data
-      : [];
+    if (
+      !imageIdState ||
+      !imageIdState[this.name] ||
+      !imageIdState[this.name].data
+    ) {
+      return [];
+    }
+
+    const data = imageIdState[this.name].data;
+
+    if (!compact) {
+      return data;
+    }
+
+    return data.map(primaryLine => {
+      const points = primaryLine.handles.points.map(point => ({
+        x: point.x,
+        y: point.y,
+        isCommonPoint: point.isCommonPoint,
+      }));
+
+      return { points, uuid: primaryLine.uuid };
+    });
   }
 
   /**
