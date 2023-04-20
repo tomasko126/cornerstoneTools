@@ -9,17 +9,17 @@ import {
   getElementToolStateManager,
   getToolState,
 } from './../../stateManagement/toolState.js';
-import { state } from '../../store/index.js'; // Da sa importovat
+import { state } from '../../store/index.js';
 
-import toolColors from './../../stateManagement/toolColors.js'; // Da sa importovat
+import toolColors from './../../stateManagement/toolColors.js';
 import triggerEvent from '../../util/triggerEvent.js';
 
 // Drawing
-import { draw, drawJoinedLines, getNewContext } from '../../drawing/index.js'; // Da sa importovat
-import drawHandles from '../../drawing/drawHandles.js'; // Da sa importovat
-import { clipToBox } from '../../util/clip.js'; // Da sa importovat
+import { draw, drawJoinedLines, getNewContext } from '../../drawing/index.js';
+import drawHandles from '../../drawing/drawHandles.js';
+import { clipToBox } from '../../util/clip.js';
 
-import freehandUtils from '../../util/freehand/index.js'; // Da sa importovat
+import freehandUtils from '../../util/freehand/index.js';
 import uuidv4 from '../../util/uuidv4';
 
 const { FreehandHandleData } = freehandUtils;
