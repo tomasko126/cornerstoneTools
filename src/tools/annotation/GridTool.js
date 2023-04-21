@@ -76,6 +76,8 @@ export default class GridTool extends BaseAnnotationTool {
     }
 
     this.completeDrawing();
+    this.showRefinementPoints = this.configuration.showRefinementPoints.global;
+
     preventPropagation(evt);
   }
 
@@ -232,15 +234,18 @@ export default class GridTool extends BaseAnnotationTool {
 
     const { element } = eventData;
 
-    // We have tool data for this element - iterate over each one and draw it
-    const context = getNewContext(eventData.canvasContext.canvas);
-
     const imageId = external.cornerstone.getImage(this.element).imageId;
     const settingForImageId = this.configuration.showRefinementPoints[imageId];
 
-    if (settingForImageId !== this.configuration.showRefinementPoints.global) {
+    if (
+      settingForImageId !== undefined &&
+      settingForImageId !== this.configuration.showRefinementPoints.global
+    ) {
       this.showRefinementPoints = this.configuration.showRefinementPoints.global;
     }
+
+    // We have tool data for this element - iterate over each one and draw it
+    const context = getNewContext(eventData.canvasContext.canvas);
 
     for (let i = 0; i < toolState.data.length; i++) {
       const data = toolState.data[i];
@@ -1389,6 +1394,11 @@ export default class GridTool extends BaseAnnotationTool {
   removeGrid() {
     // Clear grid's state for current image
     clearToolState(this.element, this.name);
+
+    const imageId = external.cornerstone.getImage(this.element).imageId;
+
+    // Reset showRefinementPoints setting
+    delete this.configuration.showRefinementPoints[imageId];
 
     // Reset spacing
     this.configuration.spacing = {
