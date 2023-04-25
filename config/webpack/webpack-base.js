@@ -3,6 +3,7 @@ const rootPath = process.cwd();
 const context = path.join(rootPath, 'src');
 const outputPath = path.join(rootPath, 'dist');
 const bannerPlugin = require('./plugins/banner');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
   mode: 'development',
@@ -53,5 +54,5 @@ module.exports = {
       },
     ],
   },
-  plugins: [bannerPlugin()],
+  plugins: [bannerPlugin(), new CopyWebpackPlugin({ patterns: [{from: rootPath + '/types/index.d.ts', to: outputPath }]})],
 };
