@@ -100,7 +100,8 @@
     "dist/cornerstoneTools.js",
     "dist/cornerstoneTools.js.map",
     "dist/cornerstoneTools.min.js",
-    "dist/cornerstoneTools.min.js.map"
+    "dist/cornerstoneTools.min.js.map",
+    "dist/index.d.ts"
   ],
   "jest": {
     "verbose": true,
@@ -135,5 +136,5 @@
     "not IE < 11",
     "not op_mini all"
   ],
-  "types": "./types/index.d.ts"
+  "types": "./dist/index.d.ts"
 }
